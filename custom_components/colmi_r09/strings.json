@@ -1,0 +1,36 @@
+{
+  "config": {
+    "step": {
+      "bluetooth_confirm": {
+        "description": "Do you want to set up the Colmi R09 ring at {name}?",
+        "title": "Colmi R09 Smart Ring detected"
+      },
+      "user": {
+        "data": {
+          "address": "Bluetooth address (MAC) of the ring"
+        },
+        "description": "Enter the Bluetooth address of your Colmi R09 ring (e.g. 30:38:47:31:08:03). You can find it using a BLE scanner app.",
+        "title": "Connect to Colmi R09 Smart Ring"
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not connect to the ring. Make sure it is nearby and charged.",
+      "unknown": "Unexpected error"
+    },
+    "abort": {
+      "already_configured": "This device is already configured.",
+      "no_devices_found": "No Colmi R09 rings found nearby.",
+      "not_supported": "This device is not supported."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "scan_interval": "Polling interval (minutes)"
+        },
+        "title": "Colmi R09 Options"
+      }
+    }
+  }
+}
