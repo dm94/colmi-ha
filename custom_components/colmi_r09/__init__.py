@@ -10,6 +10,7 @@ from datetime import timedelta
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_ADDRESS
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryNotReady
 
 from .const import (
     CONF_NAME,
@@ -27,7 +28,8 @@ PLATFORMS = ["sensor"]
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Colmi R09 from a config entry.
 
-    Creates the coordinator, does an initial data fetch, and sets up platforms.
+    Creates the coordinator and does an initial data fetch (best-effort --
+    the ring does not need to be nearby at setup time).
     """
     address: str = entry.data[CONF_ADDRESS]
     name: str = entry.data.get(CONF_NAME, f"Colmi R09 ({address})")
@@ -40,16 +42,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         update_interval=timedelta(minutes=scan_interval_minutes),
     )
 
-    # Attempt the first update. If the ring is not nearby, this will log a
-    # warning but NOT block setup — entities will appear as unavailable and
-    # retry on the next polling cycle.
-    await coordinator.async_config_entry_first_refresh()
+    # Do a best-effort first refresh. If the ring is out of range the coordinator
+    # will mark entities as unavailable but setup will still succeed. We do NOT
+    # use async_config_entry_first_refresh() because that raises ConfigEntryNotReady
+    # (and a 500 error in the UI) when the device is not immediately reachable.
+    await coordinator.async_refresh()
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    # Re-create the coordinator when options (e.g. scan interval) change
+    # Reload entry when options (e.g. scan interval) change
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
     return True

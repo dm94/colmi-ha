@@ -73,15 +73,16 @@ class ColmiR09ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 },
             )
 
-        self._set_confirm_only()
+        # Show an empty confirmation form (no _set_confirm_only() needed)
         placeholders = {"name": self._discovery_info.name}
         return self.async_show_form(
             step_id="bluetooth_confirm",
+            data_schema=vol.Schema({}),
             description_placeholders=placeholders,
         )
 
     # ------------------------------------------------------------------
-    # Manual entry flow (user goes to Add Integration → Colmi R09)
+    # Manual entry flow (user goes to Add Integration -> Colmi R09)
     # ------------------------------------------------------------------
 
     async def async_step_user(
@@ -94,16 +95,16 @@ class ColmiR09ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """
         if user_input is not None:
             address = user_input[CONF_ADDRESS].strip().upper()
-            name = self._discovered_devices.get(address, f"Colmi R09 ({address})")
+            dev_name = self._discovered_devices.get(address, f"Colmi R09 ({address})")
 
             await self.async_set_unique_id(address)
             self._abort_if_unique_id_configured()
 
             return self.async_create_entry(
-                title=name,
+                title=dev_name,
                 data={
                     CONF_ADDRESS: address,
-                    CONF_NAME: name,
+                    CONF_NAME: dev_name,
                 },
             )
 
@@ -112,20 +113,21 @@ class ColmiR09ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         for service_info in async_discovered_service_info(self.hass, connectable=True):
             if service_info.address in current_addresses:
                 continue
-            if "R09" in service_info.name.upper():
+            # Guard against devices with no name
+            if service_info.name and "R09" in service_info.name.upper():
                 self._discovered_devices[service_info.address] = service_info.name
 
         if self._discovered_devices:
             # Build select options: "R09_0803 (30:38:47:31:08:03)"
             options = {
-                addr: f"{name} ({addr})"
-                for addr, name in self._discovered_devices.items()
+                addr: f"{dev_name} ({addr})"
+                for addr, dev_name in self._discovered_devices.items()
             }
             schema = vol.Schema(
                 {vol.Required(CONF_ADDRESS): vol.In(options)}
             )
         else:
-            # No devices found — allow manual address entry
+            # No devices found -- allow manual address entry
             schema = vol.Schema(
                 {vol.Required(CONF_ADDRESS): str}
             )
@@ -153,7 +155,8 @@ class ColmiR09OptionsFlow(config_entries.OptionsFlow):
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         """Initialise."""
-        self._config_entry = config_entry
+        # Store the entry; HA also exposes it via self.config_entry in newer versions
+        self.config_entry = config_entry
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -162,7 +165,7 @@ class ColmiR09OptionsFlow(config_entries.OptionsFlow):
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
-        current_interval = self._config_entry.options.get(
+        current_interval = self.config_entry.options.get(
             CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
         )
 
