@@ -155,7 +155,7 @@ class ColmiRingClient:
             await client.write_gatt_char(
                 RX_CHAR_UUID,
                 self._build_packet(CMD_BATTERY),
-                response=True,
+                response=False,
             )
             try:
                 await asyncio.wait_for(event.wait(), timeout=10)
@@ -188,7 +188,7 @@ class ColmiRingClient:
 
             # Send START command
             start_packet = self._build_realtime_start_packet(mtype)
-            await client.write_gatt_char(RX_CHAR_UUID, start_packet, response=True)
+            await client.write_gatt_char(RX_CHAR_UUID, start_packet, response=False)
 
             # Wait until data stream has been stable for MEASUREMENT_STABLE_PERIOD seconds
             deadline = time.monotonic() + MEASUREMENT_TIMEOUT
@@ -209,7 +209,7 @@ class ColmiRingClient:
             # Send STOP command
             try:
                 stop_packet = self._build_realtime_stop_packet(mtype)
-                await client.write_gatt_char(RX_CHAR_UUID, stop_packet, response=True)
+                await client.write_gatt_char(RX_CHAR_UUID, stop_packet, response=False)
             except Exception:
                 pass
 
