@@ -146,15 +146,19 @@ class ColmiRingClient:
             event = asyncio.Event()
 
             def notification_handler(sender, data: bytearray) -> None:
+                _LOGGER.debug("[%s] RECV (battery): %s", self._address, data.hex())
                 nonlocal battery_value
                 if len(data) >= 4 and data[0] == CMD_BATTERY:
                     battery_value = int(data[1])
                     event.set()
 
             await client.start_notify(TX_CHAR_UUID, notification_handler)
+            
+            packet = self._build_packet(CMD_BATTERY)
+            _LOGGER.debug("[%s] SEND (battery): %s", self._address, packet.hex())
             await client.write_gatt_char(
                 RX_CHAR_UUID,
-                self._build_packet(CMD_BATTERY),
+                packet,
                 response=False,
             )
             try:
@@ -180,6 +184,7 @@ class ColmiRingClient:
 
         async with await self._connect() as client:
             def notification_handler(sender, data: bytearray) -> None:
+                _LOGGER.debug("[%s] RECV (0x%02X): %s", self._address, mtype, data.hex())
                 self._handle_realtime_response(data, mtype, state)
                 state.last_update = time.monotonic()
                 state.observation_count += 1
@@ -188,6 +193,7 @@ class ColmiRingClient:
 
             # Send START command
             start_packet = self._build_realtime_start_packet(mtype)
+            _LOGGER.debug("[%s] SEND START (0x%02X): %s", self._address, mtype, start_packet.hex())
             await client.write_gatt_char(RX_CHAR_UUID, start_packet, response=False)
 
             # Wait until data stream has been stable for MEASUREMENT_STABLE_PERIOD seconds
@@ -209,8 +215,10 @@ class ColmiRingClient:
             # Send STOP command
             try:
                 stop_packet = self._build_realtime_stop_packet(mtype)
+                _LOGGER.debug("[%s] SEND STOP (0x%02X): %s", self._address, mtype, stop_packet.hex())
                 await client.write_gatt_char(RX_CHAR_UUID, stop_packet, response=False)
-            except Exception:
+            except Exception as e:
+                _LOGGER.debug("[%s] Error sending stop packet (0x%02X): %s", self._address, mtype, e)
                 pass
 
             try:
@@ -325,11 +333,12 @@ class ColmiRingClient:
 
     async def _connect(self) -> BleakClient:
         """Establish a connection using bleak-retry-connector."""
-        _LOGGER.debug("Connecting to Colmi R09 at %s", self._address)
+        _LOGGER.debug("[%s] Attempting to connect to Colmi R09...", self._address)
         client = await establish_connection(
             BleakClient,
             self._ble_device,
             self._address,
             max_attempts=8,
         )
+        _LOGGER.debug("[%s] Successfully connected!", self._address)
         return client
