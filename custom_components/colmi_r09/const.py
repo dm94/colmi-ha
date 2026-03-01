@@ -18,20 +18,20 @@ PACKET_SIZE = 16
 # BLE Command bytes
 # --------------------------------------------------------------------------
 CMD_BATTERY = 0x03          # Request battery level
-CMD_REALTIME = 0x69         # Request a real-time manual measurement
+CMD_START_REAL_TIME = 105   # Start a real-time manual measurement (0x69)
+CMD_STOP_REAL_TIME = 106    # Stop a real-time manual measurement (0x6A)
 
-# Sub-command / measurement type bytes sent with CMD_REALTIME
-MTYPE_HR = 0x00             # Heart rate (bpm)
-MTYPE_SPO2 = 0x02           # Blood oxygen saturation (%)
-MTYPE_STRESS = 0x04         # Stress level (0-100)
-MTYPE_HRV = 0x05            # Heart rate variability (ms)
+# Sub-command / measurement type bytes sent with CMD_START_REAL_TIME
+MTYPE_HR = 0x01             # Heart rate (bpm)
+MTYPE_BP = 0x02             # Blood pressure (systolic/diastolic mmHg)
+MTYPE_SPO2 = 0x03           # Blood oxygen saturation (%)
+MTYPE_STRESS = 0x04         # Stress level / Fatigue (0-100)
 MTYPE_TEMP = 0x08           # Temperature (°C)
-MTYPE_BP = 0x09             # Blood pressure (systolic/diastolic mmHg)
-MTYPE_BLOOD_SUGAR = 0x0A    # Blood sugar (mg/dL)
+MTYPE_BLOOD_SUGAR = 0x09    # Blood sugar (mg/dL)
+MTYPE_HRV = 0x0A            # Heart rate variability (ms)
 
 # Control bytes within the realtime command
-REALTIME_CMD_START = 0x01   # Start a real-time measurement
-REALTIME_CMD_STOP = 0x00    # Stop a real-time measurement
+REALTIME_CMD_START = 0x01   # Continue/Start real-time measurement
 
 # Max time to wait for a stable measurement (seconds)
 MEASUREMENT_TIMEOUT = 60

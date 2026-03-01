@@ -38,7 +38,8 @@ from .const import (
     MTYPE_STRESS,
     MTYPE_TEMP,
     CMD_BATTERY,
-    CMD_REALTIME,
+    CMD_START_REAL_TIME,
+    CMD_STOP_REAL_TIME,
     KEY_BATTERY,
     KEY_BLOOD_SUGAR,
     KEY_BP_DIASTOLIC,
@@ -50,7 +51,6 @@ from .const import (
     KEY_TEMPERATURE,
     PACKET_SIZE,
     REALTIME_CMD_START,
-    REALTIME_CMD_STOP,
     RX_CHAR_UUID,
     TX_CHAR_UUID,
 )
@@ -187,7 +187,7 @@ class ColmiRingClient:
             await client.start_notify(TX_CHAR_UUID, notification_handler)
 
             # Send START command
-            start_packet = self._build_realtime_packet(mtype, REALTIME_CMD_START)
+            start_packet = self._build_realtime_start_packet(mtype)
             await client.write_gatt_char(RX_CHAR_UUID, start_packet, response=True)
 
             # Wait until data stream has been stable for MEASUREMENT_STABLE_PERIOD seconds
@@ -208,7 +208,7 @@ class ColmiRingClient:
 
             # Send STOP command
             try:
-                stop_packet = self._build_realtime_packet(mtype, REALTIME_CMD_STOP)
+                stop_packet = self._build_realtime_stop_packet(mtype)
                 await client.write_gatt_char(RX_CHAR_UUID, stop_packet, response=True)
             except Exception:
                 pass
@@ -235,7 +235,7 @@ class ColmiRingClient:
         """Parse a notification packet and update state with the latest reading."""
         if len(data) < PACKET_SIZE:
             return
-        if data[0] != CMD_REALTIME:
+        if data[0] != CMD_START_REAL_TIME:
             return
         if data[1] != mtype:
             return
@@ -295,7 +295,7 @@ class ColmiRingClient:
     @staticmethod
     def _checksum(packet: bytearray) -> int:
         """Calculate the packet checksum: sum of first 15 bytes mod 255."""
-        return sum(packet[:PACKET_SIZE - 1]) % 255
+        return sum(packet[:PACKET_SIZE - 1]) & 255
 
     def _build_packet(self, command: int, payload: bytes | None = None) -> bytearray:
         """Build a 16-byte command packet."""
@@ -307,11 +307,17 @@ class ColmiRingClient:
         packet[PACKET_SIZE - 1] = self._checksum(packet)
         return packet
 
-    def _build_realtime_packet(self, mtype: int, cmd: int) -> bytearray:
-        """Build a real-time measurement start/stop packet."""
-        # Payload: [mtype, cmd, 0x00 ...]
-        payload = bytearray([mtype, cmd])
-        return self._build_packet(CMD_REALTIME, payload)
+    def _build_realtime_start_packet(self, mtype: int) -> bytearray:
+        """Build a real-time measurement start packet."""
+        # Payload: [mtype, REALTIME_CMD_START, 0x00 ...]
+        payload = bytearray([mtype, REALTIME_CMD_START])
+        return self._build_packet(CMD_START_REAL_TIME, payload)
+
+    def _build_realtime_stop_packet(self, mtype: int) -> bytearray:
+        """Build a real-time measurement stop packet."""
+        # Payload for stop is usually [mtype, 0, 0]
+        payload = bytearray([mtype, 0, 0])
+        return self._build_packet(CMD_STOP_REAL_TIME, payload)
 
     # ------------------------------------------------------------------
     # Connection management
