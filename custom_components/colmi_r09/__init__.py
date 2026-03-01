@@ -42,11 +42,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         update_interval=timedelta(minutes=scan_interval_minutes),
     )
 
-    # Do a best-effort first refresh. If the ring is out of range the coordinator
+    # Do a best-effort first refresh in the background. If the ring is out of range the coordinator
     # will mark entities as unavailable but setup will still succeed. We do NOT
-    # use async_config_entry_first_refresh() because that raises ConfigEntryNotReady
-    # (and a 500 error in the UI) when the device is not immediately reachable.
-    await coordinator.async_refresh()
+    # await this or use async_config_entry_first_refresh() because it takes too long
+    # and would block async_setup_entry, throwing a CancelledError timeout.
+    entry.async_create_background_task(
+        hass,
+        coordinator.async_refresh(),
+        name=f"colmi_r09_first_refresh_{entry.entry_id}",
+    )
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
 
