@@ -50,6 +50,7 @@ KEY_TEMPERATURE = "temperature"
 KEY_BP_SYSTOLIC = "blood_pressure_systolic"
 KEY_BP_DIASTOLIC = "blood_pressure_diastolic"
 KEY_BLOOD_SUGAR = "blood_sugar"
+KEY_RSSI = "rssi"
 
 # Configuration keys
 CONF_ADDRESS = "address"

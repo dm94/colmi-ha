@@ -18,8 +18,10 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     CONF_ADDRESS,
     PERCENTAGE,
+    SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
     UnitOfPressure,
     UnitOfTemperature,
+    EntityCategory,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -38,6 +40,7 @@ from .const import (
     KEY_SPO2,
     KEY_STRESS,
     KEY_TEMPERATURE,
+    KEY_RSSI,
 )
 from .coordinator import ColmiDataUpdateCoordinator
 
@@ -124,6 +127,15 @@ SENSOR_DESCRIPTIONS: tuple[ColmiSensorEntityDescription, ...] = (
         icon="mdi:diabetes",
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UNIT_MG_DL,
+    ),
+    ColmiSensorEntityDescription(
+        key="rssi",
+        data_key=KEY_RSSI,
+        name="Signal Strength",
+        device_class=SensorDeviceClass.SIGNAL_STRENGTH,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+        entity_category=EntityCategory.DIAGNOSTIC,
     ),
 )
 

@@ -14,7 +14,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .colmi_client import ColmiRingClient
-from .const import DOMAIN, KEY_BATTERY, KEY_BLOOD_SUGAR, KEY_BP_DIASTOLIC, KEY_BP_SYSTOLIC, KEY_HEART_RATE, KEY_HRV, KEY_SPO2, KEY_STRESS, KEY_TEMPERATURE
+from .const import DOMAIN, KEY_BATTERY, KEY_BLOOD_SUGAR, KEY_BP_DIASTOLIC, KEY_BP_SYSTOLIC, KEY_HEART_RATE, KEY_HRV, KEY_SPO2, KEY_STRESS, KEY_TEMPERATURE, KEY_RSSI
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -29,6 +29,7 @@ EMPTY_DATA: dict[str, Any] = {
     KEY_HRV: None,
     KEY_STRESS: None,
     KEY_BLOOD_SUGAR: None,
+    KEY_RSSI: None,
 }
 
 
@@ -76,6 +77,7 @@ class ColmiDataUpdateCoordinator(DataUpdateCoordinator):
 
         try:
             data = await client.collect_all_data()
+            data[KEY_RSSI] = service_info.advertisement.rssi
         except Exception as err:
             raise UpdateFailed(f"Error communicating with Colmi R09: {err}") from err
 
