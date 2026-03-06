@@ -14,7 +14,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .colmi_client import ColmiRingClient
-from .const import DOMAIN, KEY_BATTERY, KEY_BLOOD_SUGAR, KEY_BP_DIASTOLIC, KEY_BP_SYSTOLIC, KEY_HEART_RATE, KEY_HRV, KEY_SPO2, KEY_STRESS, KEY_TEMPERATURE, KEY_RSSI
+from .const import DOMAIN, KEY_BATTERY, KEY_BP_DIASTOLIC, KEY_BP_SYSTOLIC, KEY_HEART_RATE, KEY_HRV, KEY_SPO2, KEY_STRESS, KEY_TEMPERATURE, KEY_RSSI
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -28,7 +28,6 @@ EMPTY_DATA: dict[str, Any] = {
     KEY_TEMPERATURE: None,
     KEY_HRV: None,
     KEY_STRESS: None,
-    KEY_BLOOD_SUGAR: None,
     KEY_RSSI: None,
 }
 

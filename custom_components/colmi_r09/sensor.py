@@ -32,7 +32,6 @@ from .const import (
     CONF_NAME,
     DOMAIN,
     KEY_BATTERY,
-    KEY_BLOOD_SUGAR,
     KEY_BP_DIASTOLIC,
     KEY_BP_SYSTOLIC,
     KEY_HEART_RATE,
@@ -119,14 +118,6 @@ SENSOR_DESCRIPTIONS: tuple[ColmiSensorEntityDescription, ...] = (
         name="Stress Level",
         icon="mdi:brain",
         state_class=SensorStateClass.MEASUREMENT,
-    ),
-    ColmiSensorEntityDescription(
-        key="blood_sugar",
-        data_key=KEY_BLOOD_SUGAR,
-        name="Blood Sugar",
-        icon="mdi:diabetes",
-        state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement=UNIT_MG_DL,
     ),
     ColmiSensorEntityDescription(
         key="rssi",

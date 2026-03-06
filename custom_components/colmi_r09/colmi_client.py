@@ -41,7 +41,6 @@ from .const import (
     CMD_START_REAL_TIME,
     CMD_STOP_REAL_TIME,
     KEY_BATTERY,
-    KEY_BLOOD_SUGAR,
     KEY_BP_DIASTOLIC,
     KEY_BP_SYSTOLIC,
     KEY_HEART_RATE,
@@ -102,7 +101,6 @@ class ColmiRingClient:
             KEY_TEMPERATURE: None,
             KEY_HRV: None,
             KEY_STRESS: None,
-            KEY_BLOOD_SUGAR: None,
         }
 
         measurements = [
@@ -112,7 +110,6 @@ class ColmiRingClient:
             (KEY_HRV, MTYPE_HRV),
             (KEY_TEMPERATURE, MTYPE_TEMP),
             (KEY_BP_SYSTOLIC, MTYPE_BP),
-            (KEY_BLOOD_SUGAR, MTYPE_BLOOD_SUGAR),
         ]
 
         # --- Battery (one connection) ---
@@ -311,12 +308,6 @@ class ColmiRingClient:
             if systolic > 0 and diastolic > 0:
                 state.value = systolic
                 state.value2 = diastolic
-
-        elif mtype == MTYPE_BLOOD_SUGAR:
-            # data[3] + data[4] = blood sugar in mg/dL (big-endian uint16)
-            raw = (int(data[3]) << 8) | int(data[4])
-            if raw > 0:
-                state.value = raw
 
     # ------------------------------------------------------------------
     # Packet building
