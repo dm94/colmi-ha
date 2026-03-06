@@ -420,8 +420,18 @@ class ColmiRingClient:
 
         # Diagnóstico extra: listar servicios y características BLE para comprobar
         # que los UUID RX/TX configurados existen en este dispositivo concreto.
+        # En Home Assistant el cliente real suele ser un `HaBleakClientWrapper`,
+        # que no siempre expone el método `get_services`, pero sí una propiedad
+        # `services`. Para evitar errores de atributo usamos ambas opciones de
+        # forma defensiva.
         try:
-            services = await client.get_services()
+            services = getattr(client, "services", None)
+            if services is None and hasattr(client, "get_services"):
+                services = await client.get_services()
+
+            if services is None:
+                raise RuntimeError("BLE services not available on client")
+
             rx_found = False
             tx_found = False
             for service in services:
