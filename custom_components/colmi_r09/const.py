@@ -36,6 +36,10 @@ REALTIME_CMD_START = 0x01   # Continue/Start real-time measurement
 MEASUREMENT_TIMEOUT = 60
 # Time after last data packet considered "stable" / done (seconds)
 MEASUREMENT_STABLE_PERIOD = 4
+# Max BLE connection attempts (lower = fail faster, avoids saturating proxy slots)
+MAX_CONNECTION_ATTEMPTS = 4
+# Pause between measurements on same connection (seconds) - lets ring process
+MEASUREMENT_PAUSE = 2
 
 # --------------------------------------------------------------------------
 # Sensor keys (used in coordinator data dict)

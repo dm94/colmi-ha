@@ -28,6 +28,7 @@ from bleak.exc import BleakError
 from bleak_retry_connector import establish_connection
 
 from .const import (
+    MEASUREMENT_PAUSE,
     MEASUREMENT_STABLE_PERIOD,
     MEASUREMENT_TIMEOUT,
     MTYPE_BP,
@@ -36,6 +37,7 @@ from .const import (
     MTYPE_SPO2,
     MTYPE_STRESS,
     MTYPE_TEMP,
+    MAX_CONNECTION_ATTEMPTS,
     CMD_BATTERY,
     CMD_START_REAL_TIME,
     CMD_STOP_REAL_TIME,
@@ -88,7 +90,8 @@ class ColmiRingClient:
         """Connect to the ring and collect all available sensor data.
 
         Returns a dict with all available readings. Missing values are None.
-        Each measurement requires a separate connection (ring limitation).
+        Uses a single BLE connection for the entire cycle to avoid saturating
+        proxy/adapter connection slots.
         """
         _LOGGER.debug("[%s] Starting full data collection cycle", self._address)
         result: dict[str, Any] = {
@@ -111,30 +114,42 @@ class ColmiRingClient:
             (KEY_BP_SYSTOLIC, MTYPE_BP),
         ]
 
-        # --- Battery (one connection) ---
+        # Single connection for entire cycle — reduces proxy slot exhaustion
+        client = None
         try:
-            battery = await self._run_battery_measurement()
-            result[KEY_BATTERY] = battery
-        except Exception as err:
-            _LOGGER.warning("Battery measurement failed: %s", err)
-
-        # --- Health metrics (one connection each, as required by ring) ---
-        for key, mtype in measurements:
+            client = await self._connect()
+            # --- Battery ---
             try:
-                _LOGGER.debug(
-                    "[%s] Starting measurement for key=%s (mtype=0x%02X)",
-                    self._address,
-                    key,
-                    mtype,
-                )
-                values = await self._run_realtime_measurement(mtype)
-                if mtype == MTYPE_BP:
-                    result[KEY_BP_SYSTOLIC] = values[0] if values else None
-                    result[KEY_BP_DIASTOLIC] = values[1] if values and len(values) > 1 else None
-                else:
-                    result[key] = values[0] if values else None
+                result[KEY_BATTERY] = await self._run_battery_measurement(client)
             except Exception as err:
-                _LOGGER.warning("Measurement %s failed: %s", key, err)
+                _LOGGER.warning("Battery measurement failed: %s", err)
+
+            # --- Health metrics (sequential on same connection) ---
+            for key, mtype in measurements:
+                try:
+                    await asyncio.sleep(MEASUREMENT_PAUSE)
+                    _LOGGER.debug(
+                        "[%s] Starting measurement for key=%s (mtype=0x%02X)",
+                        self._address,
+                        key,
+                        mtype,
+                    )
+                    values = await self._run_realtime_measurement(mtype, client)
+                    if mtype == MTYPE_BP:
+                        result[KEY_BP_SYSTOLIC] = values[0] if values else None
+                        result[KEY_BP_DIASTOLIC] = values[1] if values and len(values) > 1 else None
+                    else:
+                        result[key] = values[0] if values else None
+                except Exception as err:
+                    _LOGGER.warning("Measurement %s failed: %s", key, err)
+        except Exception as err:
+            _LOGGER.warning("[%s] Connection failed for full cycle: %s", self._address, err)
+        finally:
+            if client is not None:
+                try:
+                    await client.disconnect()
+                except Exception:
+                    pass
 
         _LOGGER.debug("[%s] Full data collection result: %s", self._address, result)
         return result
@@ -143,57 +158,55 @@ class ColmiRingClient:
     # Battery measurement
     # ------------------------------------------------------------------
 
-    async def _run_battery_measurement(self) -> int | None:
-        """Connect, read battery level, disconnect."""
-        async with await self._connect() as client:
-            battery_value: int | None = None
-            event = asyncio.Event()
+    async def _run_battery_measurement(self, client: BleakClient) -> int | None:
+        """Read battery level using an existing BLE connection."""
+        battery_value: int | None = None
+        event = asyncio.Event()
 
-            def notification_handler(sender, data: bytearray) -> None:
-                _LOGGER.debug("[%s] RECV (battery): %s", self._address, data.hex())
-                nonlocal battery_value
-                if len(data) >= 4 and data[0] == CMD_BATTERY:
-                    battery_value = int(data[1])
-                    event.set()
+        def notification_handler(sender, data: bytearray) -> None:
+            _LOGGER.debug("[%s] RECV (battery): %s", self._address, data.hex())
+            nonlocal battery_value
+            if len(data) >= 4 and data[0] == CMD_BATTERY:
+                battery_value = int(data[1])
+                event.set()
 
-            # Añadimos logs detallados para saber exactamente en qué paso falla
-            try:
-                _LOGGER.debug("[%s] Enabling notifications on TX_CHAR_UUID=%s for battery", self._address, TX_CHAR_UUID)
-                await client.start_notify(TX_CHAR_UUID, notification_handler)
-            except Exception as err:
-                _LOGGER.warning(
-                    "[%s] start_notify failed for battery on TX_CHAR_UUID=%s: %s",
-                    self._address,
-                    TX_CHAR_UUID,
-                    err,
-                )
-                raise
+        try:
+            _LOGGER.debug("[%s] Enabling notifications on TX_CHAR_UUID=%s for battery", self._address, TX_CHAR_UUID)
+            await client.start_notify(TX_CHAR_UUID, notification_handler)
+        except Exception as err:
+            _LOGGER.warning(
+                "[%s] start_notify failed for battery on TX_CHAR_UUID=%s: %s",
+                self._address,
+                TX_CHAR_UUID,
+                err,
+            )
+            raise
 
-            packet = self._build_packet(CMD_BATTERY)
-            _LOGGER.debug("[%s] SEND (battery) to RX_CHAR_UUID=%s: %s", self._address, RX_CHAR_UUID, packet.hex())
+        packet = self._build_packet(CMD_BATTERY)
+        _LOGGER.debug("[%s] SEND (battery) to RX_CHAR_UUID=%s: %s", self._address, RX_CHAR_UUID, packet.hex())
+        try:
+            await client.write_gatt_char(
+                RX_CHAR_UUID,
+                packet,
+                response=False,
+            )
+        except Exception as err:
+            _LOGGER.warning(
+                "[%s] write_gatt_char failed for battery on RX_CHAR_UUID=%s: %s",
+                self._address,
+                RX_CHAR_UUID,
+                err,
+            )
+            raise
+        try:
+            await asyncio.wait_for(event.wait(), timeout=10)
+        except asyncio.TimeoutError:
+            _LOGGER.debug("Timeout waiting for battery response")
+        finally:
             try:
-                await client.write_gatt_char(
-                    RX_CHAR_UUID,
-                    packet,
-                    response=False,
-                )
-            except Exception as err:
-                _LOGGER.warning(
-                    "[%s] write_gatt_char failed for battery on RX_CHAR_UUID=%s: %s",
-                    self._address,
-                    RX_CHAR_UUID,
-                    err,
-                )
-                raise
-            try:
-                await asyncio.wait_for(event.wait(), timeout=10)
-            except asyncio.TimeoutError:
-                _LOGGER.debug("Timeout waiting for battery response")
-            finally:
-                try:
-                    await client.stop_notify(TX_CHAR_UUID)
-                except Exception:
-                    pass
+                await client.stop_notify(TX_CHAR_UUID)
+            except Exception:
+                pass
 
         return battery_value
 
@@ -201,86 +214,85 @@ class ColmiRingClient:
     # Real-time measurement
     # ------------------------------------------------------------------
 
-    async def _run_realtime_measurement(self, mtype: int) -> list[Any]:
-        """Connect, request a real-time measurement, wait for stable data, disconnect."""
+    async def _run_realtime_measurement(self, mtype: int, client: BleakClient) -> list[Any]:
+        """Request a real-time measurement using an existing BLE connection."""
         state = MeasurementState()
-        async with await self._connect() as client:
-            def notification_handler(sender, data: bytearray) -> None:
-                _LOGGER.debug("[%s] RECV (0x%02X): %s", self._address, mtype, data.hex())
-                self._handle_realtime_response(data, mtype, state)
-                state.last_update = time.monotonic()
-                state.observation_count += 1
 
-            try:
-                _LOGGER.debug(
-                    "[%s] Enabling notifications on TX_CHAR_UUID=%s for mtype=0x%02X",
-                    self._address,
-                    TX_CHAR_UUID,
-                    mtype,
-                )
-                await client.start_notify(TX_CHAR_UUID, notification_handler)
-            except Exception as err:
-                _LOGGER.warning(
-                    "[%s] start_notify failed for realtime mtype=0x%02X on TX_CHAR_UUID=%s: %s",
-                    self._address,
-                    mtype,
-                    TX_CHAR_UUID,
-                    err,
-                )
-                raise
+        def notification_handler(sender, data: bytearray) -> None:
+            _LOGGER.debug("[%s] RECV (0x%02X): %s", self._address, mtype, data.hex())
+            self._handle_realtime_response(data, mtype, state)
+            state.last_update = time.monotonic()
+            state.observation_count += 1
 
-            # Send START command
-            start_packet = self._build_realtime_start_packet(mtype)
+        try:
             _LOGGER.debug(
-                "[%s] SEND START (0x%02X) to RX_CHAR_UUID=%s: %s",
+                "[%s] Enabling notifications on TX_CHAR_UUID=%s for mtype=0x%02X",
+                self._address,
+                TX_CHAR_UUID,
+                mtype,
+            )
+            await client.start_notify(TX_CHAR_UUID, notification_handler)
+        except Exception as err:
+            _LOGGER.warning(
+                "[%s] start_notify failed for realtime mtype=0x%02X on TX_CHAR_UUID=%s: %s",
+                self._address,
+                mtype,
+                TX_CHAR_UUID,
+                err,
+            )
+            raise
+
+        # Send START command
+        start_packet = self._build_realtime_start_packet(mtype)
+        _LOGGER.debug(
+            "[%s] SEND START (0x%02X) to RX_CHAR_UUID=%s: %s",
+            self._address,
+            mtype,
+            RX_CHAR_UUID,
+            start_packet.hex(),
+        )
+        try:
+            await client.write_gatt_char(RX_CHAR_UUID, start_packet, response=False)
+        except Exception as err:
+            _LOGGER.warning(
+                "[%s] write_gatt_char failed for realtime mtype=0x%02X on RX_CHAR_UUID=%s: %s",
                 self._address,
                 mtype,
                 RX_CHAR_UUID,
-                start_packet.hex(),
+                err,
             )
-            try:
-                await client.write_gatt_char(RX_CHAR_UUID, start_packet, response=False)
-            except Exception as err:
-                _LOGGER.warning(
-                    "[%s] write_gatt_char failed for realtime mtype=0x%02X on RX_CHAR_UUID=%s: %s",
-                    self._address,
-                    mtype,
-                    RX_CHAR_UUID,
-                    err,
+            raise
+
+        # Wait until data stream has been stable for MEASUREMENT_STABLE_PERIOD seconds
+        deadline = time.monotonic() + MEASUREMENT_TIMEOUT
+        timed_out = True
+        while time.monotonic() < deadline:
+            await asyncio.sleep(1)
+            elapsed_since_update = time.monotonic() - state.last_update
+            if (
+                state.observation_count > 0
+                and state.value is not None
+                and elapsed_since_update >= MEASUREMENT_STABLE_PERIOD
+            ):
+                _LOGGER.debug(
+                    "Stable measurement for mtype=0x%02X: %s (after %d observations)",
+                    mtype, state.value, state.observation_count,
                 )
-                raise
+                timed_out = False
+                break
 
-            # Wait until data stream has been stable for MEASUREMENT_STABLE_PERIOD seconds
-            deadline = time.monotonic() + MEASUREMENT_TIMEOUT
-            timed_out = True
-            while time.monotonic() < deadline:
-                await asyncio.sleep(1)
-                elapsed_since_update = time.monotonic() - state.last_update
-                if (
-                    state.observation_count > 0
-                    and state.value is not None
-                    and elapsed_since_update >= MEASUREMENT_STABLE_PERIOD
-                ):
-                    _LOGGER.debug(
-                        "Stable measurement for mtype=0x%02X: %s (after %d observations)",
-                        mtype, state.value, state.observation_count,
-                    )
-                    timed_out = False
-                    break
+        # Send STOP command
+        try:
+            stop_packet = self._build_realtime_stop_packet(mtype)
+            _LOGGER.debug("[%s] SEND STOP (0x%02X): %s", self._address, mtype, stop_packet.hex())
+            await client.write_gatt_char(RX_CHAR_UUID, stop_packet, response=False)
+        except Exception as e:
+            _LOGGER.debug("[%s] Error sending stop packet (0x%02X): %s", self._address, mtype, e)
 
-            # Send STOP command
-            try:
-                stop_packet = self._build_realtime_stop_packet(mtype)
-                _LOGGER.debug("[%s] SEND STOP (0x%02X): %s", self._address, mtype, stop_packet.hex())
-                await client.write_gatt_char(RX_CHAR_UUID, stop_packet, response=False)
-            except Exception as e:
-                _LOGGER.debug("[%s] Error sending stop packet (0x%02X): %s", self._address, mtype, e)
-                pass
-
-            try:
-                await client.stop_notify(TX_CHAR_UUID)
-            except Exception:
-                pass
+        try:
+            await client.stop_notify(TX_CHAR_UUID)
+        except Exception:
+            pass
 
         if timed_out and state.value is None and state.value2 is None:
             _LOGGER.debug(
@@ -402,7 +414,7 @@ class ColmiRingClient:
             BleakClient,
             self._ble_device,
             self._address,
-            max_attempts=8,
+            max_attempts=MAX_CONNECTION_ATTEMPTS,
         )
         _LOGGER.debug("[%s] Successfully connected!", self._address)
 
