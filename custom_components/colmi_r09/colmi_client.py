@@ -156,15 +156,35 @@ class ColmiRingClient:
                     battery_value = int(data[1])
                     event.set()
 
-            await client.start_notify(TX_CHAR_UUID, notification_handler)
-            
+            # Añadimos logs detallados para saber exactamente en qué paso falla
+            try:
+                _LOGGER.debug("[%s] Enabling notifications on TX_CHAR_UUID=%s for battery", self._address, TX_CHAR_UUID)
+                await client.start_notify(TX_CHAR_UUID, notification_handler)
+            except Exception as err:
+                _LOGGER.warning(
+                    "[%s] start_notify failed for battery on TX_CHAR_UUID=%s: %s",
+                    self._address,
+                    TX_CHAR_UUID,
+                    err,
+                )
+                raise
+
             packet = self._build_packet(CMD_BATTERY)
-            _LOGGER.debug("[%s] SEND (battery): %s", self._address, packet.hex())
-            await client.write_gatt_char(
-                RX_CHAR_UUID,
-                packet,
-                response=False,
-            )
+            _LOGGER.debug("[%s] SEND (battery) to RX_CHAR_UUID=%s: %s", self._address, RX_CHAR_UUID, packet.hex())
+            try:
+                await client.write_gatt_char(
+                    RX_CHAR_UUID,
+                    packet,
+                    response=False,
+                )
+            except Exception as err:
+                _LOGGER.warning(
+                    "[%s] write_gatt_char failed for battery on RX_CHAR_UUID=%s: %s",
+                    self._address,
+                    RX_CHAR_UUID,
+                    err,
+                )
+                raise
             try:
                 await asyncio.wait_for(event.wait(), timeout=10)
             except asyncio.TimeoutError:
@@ -191,12 +211,44 @@ class ColmiRingClient:
                 state.last_update = time.monotonic()
                 state.observation_count += 1
 
-            await client.start_notify(TX_CHAR_UUID, notification_handler)
+            try:
+                _LOGGER.debug(
+                    "[%s] Enabling notifications on TX_CHAR_UUID=%s for mtype=0x%02X",
+                    self._address,
+                    TX_CHAR_UUID,
+                    mtype,
+                )
+                await client.start_notify(TX_CHAR_UUID, notification_handler)
+            except Exception as err:
+                _LOGGER.warning(
+                    "[%s] start_notify failed for realtime mtype=0x%02X on TX_CHAR_UUID=%s: %s",
+                    self._address,
+                    mtype,
+                    TX_CHAR_UUID,
+                    err,
+                )
+                raise
 
             # Send START command
             start_packet = self._build_realtime_start_packet(mtype)
-            _LOGGER.debug("[%s] SEND START (0x%02X): %s", self._address, mtype, start_packet.hex())
-            await client.write_gatt_char(RX_CHAR_UUID, start_packet, response=False)
+            _LOGGER.debug(
+                "[%s] SEND START (0x%02X) to RX_CHAR_UUID=%s: %s",
+                self._address,
+                mtype,
+                RX_CHAR_UUID,
+                start_packet.hex(),
+            )
+            try:
+                await client.write_gatt_char(RX_CHAR_UUID, start_packet, response=False)
+            except Exception as err:
+                _LOGGER.warning(
+                    "[%s] write_gatt_char failed for realtime mtype=0x%02X on RX_CHAR_UUID=%s: %s",
+                    self._address,
+                    mtype,
+                    RX_CHAR_UUID,
+                    err,
+                )
+                raise
 
             # Wait until data stream has been stable for MEASUREMENT_STABLE_PERIOD seconds
             deadline = time.monotonic() + MEASUREMENT_TIMEOUT
@@ -353,4 +405,37 @@ class ColmiRingClient:
             max_attempts=8,
         )
         _LOGGER.debug("[%s] Successfully connected!", self._address)
+
+        # Diagnóstico extra: listar servicios y características BLE para comprobar
+        # que los UUID RX/TX configurados existen en este dispositivo concreto.
+        try:
+            services = await client.get_services()
+            rx_found = False
+            tx_found = False
+            for service in services:
+                _LOGGER.debug("[%s] Service %s", self._address, service.uuid)
+                for char in service.characteristics:
+                    _LOGGER.debug(
+                        "[%s]   Char %s (props=%s)",
+                        self._address,
+                        char.uuid,
+                        char.properties,
+                    )
+                    if str(char.uuid).lower() == RX_CHAR_UUID:
+                        rx_found = True
+                    if str(char.uuid).lower() == TX_CHAR_UUID:
+                        tx_found = True
+            if not rx_found or not tx_found:
+                _LOGGER.warning(
+                    "[%s] Configured RX/TX characteristics not found on device. "
+                    "RX_FOUND=%s TX_FOUND=%s (RX_CHAR_UUID=%s, TX_CHAR_UUID=%s)",
+                    self._address,
+                    rx_found,
+                    tx_found,
+                    RX_CHAR_UUID,
+                    TX_CHAR_UUID,
+                )
+        except Exception as err:
+            _LOGGER.debug("[%s] Failed to enumerate services/characteristics: %s", self._address, err)
+
         return client
