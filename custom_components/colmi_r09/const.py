@@ -2,8 +2,8 @@
 
 DOMAIN = "colmi_r09"
 
-# Default polling interval in minutes
-DEFAULT_SCAN_INTERVAL = 10
+# Default polling interval in minutes (higher = less proxy load when ring is unreachable)
+DEFAULT_SCAN_INTERVAL = 15
 CONF_SCAN_INTERVAL = "scan_interval"
 
 # BLE Service and Characteristic UUIDs
@@ -36,8 +36,8 @@ REALTIME_CMD_START = 0x01   # Continue/Start real-time measurement
 MEASUREMENT_TIMEOUT = 60
 # Time after last data packet considered "stable" / done (seconds)
 MEASUREMENT_STABLE_PERIOD = 4
-# Max BLE connection attempts (lower = fail faster, avoids saturating proxy slots)
-MAX_CONNECTION_ATTEMPTS = 4
+# Max BLE connection attempts (low = fail fast and free proxy slot for next poll/other devices)
+MAX_CONNECTION_ATTEMPTS = 2
 # Connection timeout per attempt (seconds) - rings in sleep need more time to wake
 CONNECTION_TIMEOUT = 45
 # Pause between measurements on same connection (seconds) - lets ring process

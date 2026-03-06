@@ -144,7 +144,14 @@ class ColmiRingClient:
                 except Exception as err:
                     _LOGGER.warning("Measurement %s failed: %s", key, err)
         except Exception as err:
+            err_str = str(err)
             _LOGGER.warning("[%s] Connection failed for full cycle: %s", self._address, err)
+            if "connection slot" in err_str.lower() or "out of connection slots" in err_str.lower():
+                _LOGGER.info(
+                    "[%s] Bluetooth proxy has no free slots. Add more proxies near the ring or "
+                    "increase scan interval: https://esphome.github.io/bluetooth-proxies/",
+                    self._address,
+                )
         finally:
             if client is not None:
                 try:
