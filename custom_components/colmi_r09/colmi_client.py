@@ -92,6 +92,7 @@ class ColmiRingClient:
         Returns a dict with all available readings. Missing values are None.
         Each measurement requires a separate connection (ring limitation).
         """
+        _LOGGER.debug("[%s] Starting full data collection cycle", self._address)
         result: dict[str, Any] = {
             KEY_BATTERY: None,
             KEY_HEART_RATE: None,
@@ -124,6 +125,12 @@ class ColmiRingClient:
         # --- Health metrics (one connection each, as required by ring) ---
         for key, mtype in measurements:
             try:
+                _LOGGER.debug(
+                    "[%s] Starting measurement for key=%s (mtype=0x%02X)",
+                    self._address,
+                    key,
+                    mtype,
+                )
                 values = await self._run_realtime_measurement(mtype)
                 if mtype == MTYPE_BP:
                     result[KEY_BP_SYSTOLIC] = values[0] if values else None
@@ -133,6 +140,7 @@ class ColmiRingClient:
             except Exception as err:
                 _LOGGER.warning("Measurement %s failed: %s", key, err)
 
+        _LOGGER.debug("[%s] Full data collection result: %s", self._address, result)
         return result
 
     # ------------------------------------------------------------------
@@ -180,8 +188,6 @@ class ColmiRingClient:
     async def _run_realtime_measurement(self, mtype: int) -> list[Any]:
         """Connect, request a real-time measurement, wait for stable data, disconnect."""
         state = MeasurementState()
-        stable_event = asyncio.Event()
-
         async with await self._connect() as client:
             def notification_handler(sender, data: bytearray) -> None:
                 _LOGGER.debug("[%s] RECV (0x%02X): %s", self._address, mtype, data.hex())
@@ -198,6 +204,7 @@ class ColmiRingClient:
 
             # Wait until data stream has been stable for MEASUREMENT_STABLE_PERIOD seconds
             deadline = time.monotonic() + MEASUREMENT_TIMEOUT
+            timed_out = True
             while time.monotonic() < deadline:
                 await asyncio.sleep(1)
                 elapsed_since_update = time.monotonic() - state.last_update
@@ -210,6 +217,7 @@ class ColmiRingClient:
                         "Stable measurement for mtype=0x%02X: %s (after %d observations)",
                         mtype, state.value, state.observation_count,
                     )
+                    timed_out = False
                     break
 
             # Send STOP command
@@ -226,11 +234,25 @@ class ColmiRingClient:
             except Exception:
                 pass
 
+        if timed_out and state.value is None and state.value2 is None:
+            _LOGGER.debug(
+                "[%s] Measurement timeout for mtype=0x%02X after %d observations, no stable value",
+                self._address,
+                mtype,
+                state.observation_count,
+            )
+
         results: list[Any] = []
         if state.value is not None:
             results.append(state.value)
         if state.value2 is not None:
             results.append(state.value2)
+        _LOGGER.debug(
+            "[%s] Measurement finished for mtype=0x%02X with results=%s",
+            self._address,
+            mtype,
+            results,
+        )
         return results
 
     # ------------------------------------------------------------------
