@@ -155,8 +155,9 @@ class ColmiR09OptionsFlow(config_entries.OptionsFlow):
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         """Initialise."""
-        # Store the entry; HA also exposes it via self.config_entry in newer versions
-        self.config_entry = config_entry
+        # Guard against HA's read-only config_entry property on OptionsFlow
+        # and store the entry on a private attribute instead.
+        self._config_entry = config_entry
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -165,7 +166,7 @@ class ColmiR09OptionsFlow(config_entries.OptionsFlow):
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
-        current_interval = self.config_entry.options.get(
+        current_interval = self._config_entry.options.get(
             CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
         )
 
