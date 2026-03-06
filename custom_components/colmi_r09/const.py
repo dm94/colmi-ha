@@ -38,6 +38,8 @@ MEASUREMENT_TIMEOUT = 60
 MEASUREMENT_STABLE_PERIOD = 4
 # Max BLE connection attempts (lower = fail faster, avoids saturating proxy slots)
 MAX_CONNECTION_ATTEMPTS = 4
+# Connection timeout per attempt (seconds) - rings in sleep need more time to wake
+CONNECTION_TIMEOUT = 45
 # Pause between measurements on same connection (seconds) - lets ring process
 MEASUREMENT_PAUSE = 2
 

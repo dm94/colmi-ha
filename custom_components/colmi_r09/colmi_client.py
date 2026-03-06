@@ -28,6 +28,7 @@ from bleak.exc import BleakError
 from bleak_retry_connector import establish_connection
 
 from .const import (
+    CONNECTION_TIMEOUT,
     MEASUREMENT_PAUSE,
     MEASUREMENT_STABLE_PERIOD,
     MEASUREMENT_TIMEOUT,
@@ -415,6 +416,7 @@ class ColmiRingClient:
             self._ble_device,
             self._address,
             max_attempts=MAX_CONNECTION_ATTEMPTS,
+            timeout=CONNECTION_TIMEOUT,
         )
         _LOGGER.debug("[%s] Successfully connected!", self._address)
 
