@@ -87,10 +87,11 @@ class ColmiRingClient:
     # Public API
     # ------------------------------------------------------------------
 
-    async def collect_all_data(self) -> dict[str, Any]:
+    async def collect_all_data(self) -> tuple[bool, dict[str, Any]]:
         """Connect to the ring and collect all available sensor data.
 
-        Returns a dict with all available readings. Missing values are None.
+        Returns (connected, data): connected is True if a BLE connection was
+        established; data holds all readings (None where not available).
         Uses a single BLE connection for the entire cycle to avoid saturating
         proxy/adapter connection slots.
         """
@@ -117,8 +118,10 @@ class ColmiRingClient:
 
         # Single connection for entire cycle — reduces proxy slot exhaustion
         client = None
+        connected = False
         try:
             client = await self._connect()
+            connected = True
             # --- Battery ---
             try:
                 result[KEY_BATTERY] = await self._run_battery_measurement(client)
@@ -159,8 +162,8 @@ class ColmiRingClient:
                 except Exception:
                     pass
 
-        _LOGGER.debug("[%s] Full data collection result: %s", self._address, result)
-        return result
+        _LOGGER.debug("[%s] Full data collection result: connected=%s, data=%s", self._address, connected, result)
+        return (connected, result)
 
     # ------------------------------------------------------------------
     # Battery measurement

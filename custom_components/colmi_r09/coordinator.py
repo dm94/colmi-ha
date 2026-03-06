@@ -73,12 +73,20 @@ class ColmiDataUpdateCoordinator(DataUpdateCoordinator):
 
         ble_device = service_info.device
         client = ColmiRingClient(ble_device)
+        rssi = service_info.advertisement.rssi
 
         try:
-            data = await client.collect_all_data()
-            data[KEY_RSSI] = service_info.advertisement.rssi
+            connected, data = await client.collect_all_data()
         except Exception as err:
             raise UpdateFailed(f"Error communicating with Colmi R09: {err}") from err
 
-        _LOGGER.debug("Colmi R09 data update complete: %s", data)
+        # If we never connected, do not overwrite sensor values that require connection;
+        # only update RSSI (from the advertisement, no connection needed).
+        if not connected:
+            data = dict(self.data) if self.data else dict(EMPTY_DATA)
+            data[KEY_RSSI] = rssi
+            _LOGGER.debug("Colmi R09 update (no connection): only RSSI updated to %s", rssi)
+        else:
+            data[KEY_RSSI] = rssi
+            _LOGGER.debug("Colmi R09 data update complete: %s", data)
         return data
