@@ -18,7 +18,6 @@ The integration exposes the following sensors:
 | Body Temperature | °C | Wrist skin temperature |
 | Heart Rate Variability (HRV) | ms | Beat-to-beat interval variation |
 | Stress Level | — | Stress index (0–100) |
-| Blood Sugar | mg/dL | Estimated blood glucose |
 
 > ⚠️ **Medical disclaimer**: Sensor readings from the Colmi R09 are for informational purposes only and should not be used for medical diagnosis or treatment.
 
