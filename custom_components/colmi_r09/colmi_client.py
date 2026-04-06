@@ -66,6 +66,7 @@ class MeasurementState:
     value2: Any = None  # Used for blood pressure (diastolic)
     last_update: float = field(default_factory=time.monotonic)
     observation_count: int = 0
+    valid_readings: int = 0
 
 
 class ColmiRingClient:
@@ -82,6 +83,24 @@ class ColmiRingClient:
         self._ble_device = ble_device
         self._address: str = ble_device.address
         self._client: BleakClient | None = None
+        self._battery_event: asyncio.Event | None = None
+        self._battery_value: int | None = None
+        self._current_mtype: int | None = None
+        self._current_realtime_state: MeasurementState | None = None
+
+    def _handle_notification(self, sender: Any, data: bytearray) -> None:
+        """Central notification handler for all BLE messages."""
+        if len(data) >= 4 and data[0] == CMD_BATTERY:
+            _LOGGER.debug("[%s] RECV (battery): %s", self._address, data.hex())
+            if self._battery_event:
+                self._battery_value = int(data[1])
+                self._battery_event.set()
+        elif len(data) >= PACKET_SIZE and data[0] == CMD_START_REAL_TIME:
+            if self._current_mtype is not None and self._current_realtime_state is not None:
+                _LOGGER.debug("[%s] RECV (0x%02X): %s", self._address, self._current_mtype, data.hex())
+                self._handle_realtime_response(data, self._current_mtype, self._current_realtime_state)
+                self._current_realtime_state.last_update = time.monotonic()
+                self._current_realtime_state.observation_count += 1
 
     # ------------------------------------------------------------------
     # Public API
@@ -122,6 +141,10 @@ class ColmiRingClient:
         try:
             client = await self._connect()
             connected = True
+            
+            _LOGGER.debug("[%s] Enabling notifications on TX_CHAR_UUID=%s", self._address, TX_CHAR_UUID)
+            await client.start_notify(TX_CHAR_UUID, self._handle_notification)
+            
             # --- Battery ---
             try:
                 result[KEY_BATTERY] = await self._run_battery_measurement(client)
@@ -146,6 +169,12 @@ class ColmiRingClient:
                         result[key] = values[0] if values else None
                 except Exception as err:
                     _LOGGER.warning("Measurement %s failed: %s", key, err)
+                    
+            try:
+                await client.stop_notify(TX_CHAR_UUID)
+            except Exception:
+                pass
+                
         except Exception as err:
             err_str = str(err)
             _LOGGER.warning("[%s] Connection failed for full cycle: %s", self._address, err)
@@ -171,27 +200,8 @@ class ColmiRingClient:
 
     async def _run_battery_measurement(self, client: BleakClient) -> int | None:
         """Read battery level using an existing BLE connection."""
-        battery_value: int | None = None
-        event = asyncio.Event()
-
-        def notification_handler(sender, data: bytearray) -> None:
-            _LOGGER.debug("[%s] RECV (battery): %s", self._address, data.hex())
-            nonlocal battery_value
-            if len(data) >= 4 and data[0] == CMD_BATTERY:
-                battery_value = int(data[1])
-                event.set()
-
-        try:
-            _LOGGER.debug("[%s] Enabling notifications on TX_CHAR_UUID=%s for battery", self._address, TX_CHAR_UUID)
-            await client.start_notify(TX_CHAR_UUID, notification_handler)
-        except Exception as err:
-            _LOGGER.warning(
-                "[%s] start_notify failed for battery on TX_CHAR_UUID=%s: %s",
-                self._address,
-                TX_CHAR_UUID,
-                err,
-            )
-            raise
+        self._battery_event = asyncio.Event()
+        self._battery_value = None
 
         packet = self._build_packet(CMD_BATTERY)
         _LOGGER.debug("[%s] SEND (battery) to RX_CHAR_UUID=%s: %s", self._address, RX_CHAR_UUID, packet.hex())
@@ -210,16 +220,13 @@ class ColmiRingClient:
             )
             raise
         try:
-            await asyncio.wait_for(event.wait(), timeout=10)
+            await asyncio.wait_for(self._battery_event.wait(), timeout=10)
         except asyncio.TimeoutError:
             _LOGGER.debug("Timeout waiting for battery response")
         finally:
-            try:
-                await client.stop_notify(TX_CHAR_UUID)
-            except Exception:
-                pass
+            self._battery_event = None
 
-        return battery_value
+        return self._battery_value
 
     # ------------------------------------------------------------------
     # Real-time measurement
@@ -228,30 +235,8 @@ class ColmiRingClient:
     async def _run_realtime_measurement(self, mtype: int, client: BleakClient) -> list[Any]:
         """Request a real-time measurement using an existing BLE connection."""
         state = MeasurementState()
-
-        def notification_handler(sender, data: bytearray) -> None:
-            _LOGGER.debug("[%s] RECV (0x%02X): %s", self._address, mtype, data.hex())
-            self._handle_realtime_response(data, mtype, state)
-            state.last_update = time.monotonic()
-            state.observation_count += 1
-
-        try:
-            _LOGGER.debug(
-                "[%s] Enabling notifications on TX_CHAR_UUID=%s for mtype=0x%02X",
-                self._address,
-                TX_CHAR_UUID,
-                mtype,
-            )
-            await client.start_notify(TX_CHAR_UUID, notification_handler)
-        except Exception as err:
-            _LOGGER.warning(
-                "[%s] start_notify failed for realtime mtype=0x%02X on TX_CHAR_UUID=%s: %s",
-                self._address,
-                mtype,
-                TX_CHAR_UUID,
-                err,
-            )
-            raise
+        self._current_mtype = mtype
+        self._current_realtime_state = state
 
         # Send START command
         start_packet = self._build_realtime_start_packet(mtype)
@@ -272,19 +257,16 @@ class ColmiRingClient:
                 RX_CHAR_UUID,
                 err,
             )
+            self._current_mtype = None
+            self._current_realtime_state = None
             raise
 
-        # Wait until data stream has been stable for MEASUREMENT_STABLE_PERIOD seconds
+        # Wait until data stream has been stable (received a few valid readings)
         deadline = time.monotonic() + MEASUREMENT_TIMEOUT
         timed_out = True
         while time.monotonic() < deadline:
             await asyncio.sleep(1)
-            elapsed_since_update = time.monotonic() - state.last_update
-            if (
-                state.observation_count > 0
-                and state.value is not None
-                and elapsed_since_update >= MEASUREMENT_STABLE_PERIOD
-            ):
+            if state.valid_readings >= 3:
                 _LOGGER.debug(
                     "Stable measurement for mtype=0x%02X: %s (after %d observations)",
                     mtype, state.value, state.observation_count,
@@ -300,10 +282,8 @@ class ColmiRingClient:
         except Exception as e:
             _LOGGER.debug("[%s] Error sending stop packet (0x%02X): %s", self._address, mtype, e)
 
-        try:
-            await client.stop_notify(TX_CHAR_UUID)
-        except Exception:
-            pass
+        self._current_mtype = None
+        self._current_realtime_state = None
 
         if timed_out and state.value is None and state.value2 is None:
             _LOGGER.debug(
@@ -341,6 +321,10 @@ class ColmiRingClient:
         if data[1] != mtype:
             return
 
+        error_code = data[2]
+        if error_code != 0:
+            return
+
         # The payload layout varies per measurement type
         # Based on the Toit/colmi_r02_client reverse-engineering:
         if mtype == MTYPE_HR:
@@ -348,24 +332,28 @@ class ColmiRingClient:
             value = int(data[3])
             if value > 0:
                 state.value = value
+                state.valid_readings += 1
 
         elif mtype == MTYPE_SPO2:
             # data[3] = SpO2 percentage, 0 means in progress
             value = int(data[3])
             if value > 0:
                 state.value = value
+                state.valid_readings += 1
 
         elif mtype == MTYPE_STRESS:
             # data[3] = stress level (0-100)
             value = int(data[3])
             if value > 0:
                 state.value = value
+                state.valid_readings += 1
 
         elif mtype == MTYPE_HRV:
             # data[3] + data[4] = HRV in ms (big-endian uint16)
             raw = (int(data[3]) << 8) | int(data[4])
             if raw > 0:
                 state.value = raw
+                state.valid_readings += 1
 
         elif mtype == MTYPE_TEMP:
             # data[3] and data[4] encode temperature as a fixed-point number
@@ -374,6 +362,7 @@ class ColmiRingClient:
             decimal_part = int(data[4])
             if integer_part > 0:
                 state.value = round(integer_part + decimal_part / 10.0, 1)
+                state.valid_readings += 1
 
         elif mtype == MTYPE_BP:
             # data[3] = systolic, data[4] = diastolic (mmHg)
@@ -382,6 +371,8 @@ class ColmiRingClient:
             if systolic > 0 and diastolic > 0:
                 state.value = systolic
                 state.value2 = diastolic
+                state.valid_readings += 1
+
 
     # ------------------------------------------------------------------
     # Packet building

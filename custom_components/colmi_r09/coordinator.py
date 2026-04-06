@@ -54,6 +54,7 @@ class ColmiDataUpdateCoordinator(DataUpdateCoordinator):
         )
         self._address = address
         self._ring_name = name
+        self.connected = False
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from the ring.
@@ -82,6 +83,7 @@ class ColmiDataUpdateCoordinator(DataUpdateCoordinator):
 
         # If we never connected, do not overwrite sensor values that require connection;
         # only update RSSI (from the advertisement, no connection needed).
+        self.connected = connected
         if not connected:
             data = dict(self.data) if self.data else dict(EMPTY_DATA)
             data[KEY_RSSI] = rssi
