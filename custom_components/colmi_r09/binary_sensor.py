@@ -58,5 +58,5 @@ class ColmiRingConnectionSensor(CoordinatorEntity[ColmiDataUpdateCoordinator], B
 
     @property
     def is_on(self) -> bool:
-        """Return True if the last update from the coordinator was successful."""
-        return self.coordinator.last_update_success
+        """Return True if the last update from the coordinator successfully connected to the ring."""
+        return self.coordinator.connected

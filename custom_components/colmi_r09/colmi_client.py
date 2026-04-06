@@ -66,6 +66,7 @@ class MeasurementState:
     value2: Any = None  # Used for blood pressure (diastolic)
     last_update: float = field(default_factory=time.monotonic)
     observation_count: int = 0
+    valid_readings: int = 0
 
 
 class ColmiRingClient:
@@ -348,24 +349,28 @@ class ColmiRingClient:
             value = int(data[3])
             if value > 0:
                 state.value = value
+                state.valid_readings += 1
 
         elif mtype == MTYPE_SPO2:
             # data[3] = SpO2 percentage, 0 means in progress
             value = int(data[3])
             if value > 0:
                 state.value = value
+                state.valid_readings += 1
 
         elif mtype == MTYPE_STRESS:
             # data[3] = stress level (0-100)
             value = int(data[3])
             if value > 0:
                 state.value = value
+                state.valid_readings += 1
 
         elif mtype == MTYPE_HRV:
             # data[3] + data[4] = HRV in ms (big-endian uint16)
             raw = (int(data[3]) << 8) | int(data[4])
             if raw > 0:
                 state.value = raw
+                state.valid_readings += 1
 
         elif mtype == MTYPE_TEMP:
             # data[3] and data[4] encode temperature as a fixed-point number
@@ -374,6 +379,7 @@ class ColmiRingClient:
             decimal_part = int(data[4])
             if integer_part > 0:
                 state.value = round(integer_part + decimal_part / 10.0, 1)
+                state.valid_readings += 1
 
         elif mtype == MTYPE_BP:
             # data[3] = systolic, data[4] = diastolic (mmHg)
@@ -382,6 +388,7 @@ class ColmiRingClient:
             if systolic > 0 and diastolic > 0:
                 state.value = systolic
                 state.value2 = diastolic
+                state.valid_readings += 1
 
     # ------------------------------------------------------------------
     # Packet building
