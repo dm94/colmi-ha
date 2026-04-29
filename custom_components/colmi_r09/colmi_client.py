@@ -51,6 +51,7 @@ from .const import (
     KEY_STRESS,
     KEY_TEMPERATURE,
     PACKET_SIZE,
+    REALTIME_CMD_CONTINUE,
     REALTIME_CMD_START,
     RX_CHAR_UUID,
     TX_CHAR_UUID,
@@ -265,6 +266,16 @@ class ColmiRingClient:
         deadline = time.monotonic() + MEASUREMENT_TIMEOUT
         timed_out = True
         while time.monotonic() < deadline:
+            try:
+                continue_packet = self._build_realtime_continue_packet(mtype)
+                await client.write_gatt_char(RX_CHAR_UUID, continue_packet, response=False)
+            except Exception as err:
+                _LOGGER.debug(
+                    "[%s] Failed sending continue packet (0x%02X): %s",
+                    self._address,
+                    mtype,
+                    err,
+                )
             await asyncio.sleep(1)
             if state.valid_readings >= 3:
                 _LOGGER.debug(
@@ -397,6 +408,11 @@ class ColmiRingClient:
         """Build a real-time measurement start packet."""
         # Payload: [mtype, REALTIME_CMD_START, 0x00 ...]
         payload = bytearray([mtype, REALTIME_CMD_START])
+        return self._build_packet(CMD_START_REAL_TIME, payload)
+
+    def _build_realtime_continue_packet(self, mtype: int) -> bytearray:
+        """Build a real-time measurement continue packet."""
+        payload = bytearray([mtype, REALTIME_CMD_CONTINUE])
         return self._build_packet(CMD_START_REAL_TIME, payload)
 
     def _build_realtime_stop_packet(self, mtype: int) -> bytearray:
