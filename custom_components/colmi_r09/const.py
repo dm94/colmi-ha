@@ -31,6 +31,7 @@ MTYPE_HRV = 0x0A            # Heart rate variability (ms)
 
 # Control bytes within the realtime command
 REALTIME_CMD_START = 0x01   # Continue/Start real-time measurement
+REALTIME_CMD_CONTINUE = 0x03
 
 # Max time to wait for a stable measurement (seconds)
 MEASUREMENT_TIMEOUT = 60
