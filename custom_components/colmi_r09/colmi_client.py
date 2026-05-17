@@ -32,7 +32,6 @@ from .const import (
     MEASUREMENT_PAUSE,
     MEASUREMENT_STABLE_PERIOD,
     MEASUREMENT_TIMEOUT,
-    MTYPE_BP,
     MTYPE_HR,
     MTYPE_HRV,
     MTYPE_SPO2,
@@ -43,8 +42,6 @@ from .const import (
     CMD_START_REAL_TIME,
     CMD_STOP_REAL_TIME,
     KEY_BATTERY,
-    KEY_BP_DIASTOLIC,
-    KEY_BP_SYSTOLIC,
     KEY_HEART_RATE,
     KEY_HRV,
     KEY_SPO2,
@@ -120,8 +117,6 @@ class ColmiRingClient:
             KEY_BATTERY: None,
             KEY_HEART_RATE: None,
             KEY_SPO2: None,
-            KEY_BP_SYSTOLIC: None,
-            KEY_BP_DIASTOLIC: None,
             KEY_TEMPERATURE: None,
             KEY_HRV: None,
             KEY_STRESS: None,
@@ -133,7 +128,6 @@ class ColmiRingClient:
             (KEY_STRESS, MTYPE_STRESS),
             (KEY_HRV, MTYPE_HRV),
             (KEY_TEMPERATURE, MTYPE_TEMP),
-            (KEY_BP_SYSTOLIC, MTYPE_BP),
         ]
 
         # Single connection for entire cycle — reduces proxy slot exhaustion
@@ -141,10 +135,32 @@ class ColmiRingClient:
         connected = False
         try:
             client = await self._connect()
-            connected = True
             
-            _LOGGER.debug("[%s] Enabling notifications on TX_CHAR_UUID=%s", self._address, TX_CHAR_UUID)
-            await client.start_notify(TX_CHAR_UUID, self._handle_notification)
+            # Ensure characteristics exist before notifying
+            try:
+                services = getattr(client, "services", None)
+                if services is None:
+                    services = await client.get_services()
+
+                tx_char = None
+                for service in services:
+                    for char in service.characteristics:
+                        if str(char.uuid).lower() == TX_CHAR_UUID:
+                            tx_char = char
+                            break
+                    if tx_char:
+                        break
+
+                if not tx_char:
+                    _LOGGER.error("[%s] TX characteristic %s not found", self._address, TX_CHAR_UUID)
+                    raise BleakError(f"TX characteristic {TX_CHAR_UUID} not found")
+
+                _LOGGER.debug("[%s] Enabling notifications on TX_CHAR_UUID=%s", self._address, TX_CHAR_UUID)
+                await client.start_notify(tx_char, self._handle_notification)
+                connected = True
+            except Exception as notify_err:
+                _LOGGER.error("[%s] Failed to start notifications: %s", self._address, notify_err)
+                raise
             
             # --- Battery ---
             try:
@@ -163,11 +179,7 @@ class ColmiRingClient:
                         mtype,
                     )
                     values = await self._run_realtime_measurement(mtype, client)
-                    if mtype == MTYPE_BP:
-                        result[KEY_BP_SYSTOLIC] = values[0] if values else None
-                        result[KEY_BP_DIASTOLIC] = values[1] if values and len(values) > 1 else None
-                    else:
-                        result[key] = values[0] if values else None
+                    result[key] = values[0] if values else None
                 except Exception as err:
                     _LOGGER.warning("Measurement %s failed: %s", key, err)
                     
@@ -266,16 +278,6 @@ class ColmiRingClient:
         deadline = time.monotonic() + MEASUREMENT_TIMEOUT
         timed_out = True
         while time.monotonic() < deadline:
-            try:
-                continue_packet = self._build_realtime_continue_packet(mtype)
-                await client.write_gatt_char(RX_CHAR_UUID, continue_packet, response=False)
-            except Exception as err:
-                _LOGGER.debug(
-                    "[%s] Failed sending continue packet (0x%02X): %s",
-                    self._address,
-                    mtype,
-                    err,
-                )
             await asyncio.sleep(1)
             if state.valid_readings >= 3:
                 _LOGGER.debug(
@@ -353,36 +355,28 @@ class ColmiRingClient:
                 state.valid_readings += 1
 
         elif mtype == MTYPE_STRESS:
-            # data[3] = stress level (0-100)
+            # data[3] = stress level (fatigue)
+            # Reference: response = response >> 1
+            value = int(data[3])
+            if value > 0:
+                state.value = value >> 1
+                state.valid_readings += 1
+
+        elif mtype == MTYPE_HRV:
+            # data[3] = HRV in ms
             value = int(data[3])
             if value > 0:
                 state.value = value
                 state.valid_readings += 1
 
-        elif mtype == MTYPE_HRV:
-            # data[3] + data[4] = HRV in ms (big-endian uint16)
-            raw = (int(data[3]) << 8) | int(data[4])
-            if raw > 0:
-                state.value = raw
-                state.valid_readings += 1
-
         elif mtype == MTYPE_TEMP:
-            # data[3] and data[4] encode temperature as a fixed-point number
-            # Integer part in data[3], decimal part in data[4]
-            integer_part = int(data[3])
-            decimal_part = int(data[4])
-            if integer_part > 0:
-                state.value = round(integer_part + decimal_part / 10.0, 1)
+            # data[3] encodes temperature
+            # Reference: response = response < 11 ? 0 : response.to_float/10 + 20
+            value = int(data[3])
+            if value >= 11:
+                state.value = round(value / 10.0 + 20.0, 1)
                 state.valid_readings += 1
 
-        elif mtype == MTYPE_BP:
-            # data[3] = systolic, data[4] = diastolic (mmHg)
-            systolic = int(data[3])
-            diastolic = int(data[4])
-            if systolic > 0 and diastolic > 0:
-                state.value = systolic
-                state.value2 = diastolic
-                state.valid_readings += 1
 
 
     # ------------------------------------------------------------------
@@ -408,11 +402,6 @@ class ColmiRingClient:
         """Build a real-time measurement start packet."""
         # Payload: [mtype, REALTIME_CMD_START, 0x00 ...]
         payload = bytearray([mtype, REALTIME_CMD_START])
-        return self._build_packet(CMD_START_REAL_TIME, payload)
-
-    def _build_realtime_continue_packet(self, mtype: int) -> bytearray:
-        """Build a real-time measurement continue packet."""
-        payload = bytearray([mtype, REALTIME_CMD_CONTINUE])
         return self._build_packet(CMD_START_REAL_TIME, payload)
 
     def _build_realtime_stop_packet(self, mtype: int) -> bytearray:
