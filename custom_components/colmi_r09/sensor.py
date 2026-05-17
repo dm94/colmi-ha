@@ -39,6 +39,7 @@ from .const import (
     KEY_SPO2,
     KEY_STRESS,
     KEY_TEMPERATURE,
+    KEY_BLOOD_SUGAR,
     KEY_RSSI,
 )
 from .coordinator import ColmiDataUpdateCoordinator
@@ -103,6 +104,14 @@ SENSOR_DESCRIPTIONS: tuple[ColmiSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+    ),
+    ColmiSensorEntityDescription(
+        key="blood_sugar",
+        data_key=KEY_BLOOD_SUGAR,
+        name="Blood Sugar",
+        icon="mdi:glucose",
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UNIT_MG_DL,
     ),
     ColmiSensorEntityDescription(
         key="hrv",

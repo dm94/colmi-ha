@@ -26,8 +26,9 @@ MTYPE_HR = 0x01             # Heart rate (bpm)
 MTYPE_BP = 0x02             # Blood pressure (systolic/diastolic mmHg)
 MTYPE_SPO2 = 0x03           # Blood oxygen saturation (%)
 MTYPE_STRESS = 0x04         # Stress level / Fatigue (0-100)
-MTYPE_TEMP = 0x08           # Temperature (°C)
+MTYPE_BS = 0x09             # Blood Sugar (mg/dL)
 MTYPE_HRV = 0x0A            # Heart rate variability (ms)
+MTYPE_TEMP = 0x0B           # Temperature (°C)
 
 # Control bytes within the realtime command
 REALTIME_CMD_START = 0x01   # Continue/Start real-time measurement
@@ -53,6 +54,7 @@ KEY_SPO2 = "spo2"
 KEY_STRESS = "stress"
 KEY_HRV = "hrv"
 KEY_TEMPERATURE = "temperature"
+KEY_BLOOD_SUGAR = "blood_sugar"
 KEY_BP_SYSTOLIC = "blood_pressure_systolic"
 KEY_BP_DIASTOLIC = "blood_pressure_diastolic"
 KEY_RSSI = "rssi"
