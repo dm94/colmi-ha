@@ -32,7 +32,6 @@ from .const import (
     MEASUREMENT_PAUSE,
     MEASUREMENT_STABLE_PERIOD,
     MEASUREMENT_TIMEOUT,
-    MTYPE_BP,
     MTYPE_HR,
     MTYPE_HRV,
     MTYPE_SPO2,
@@ -44,8 +43,6 @@ from .const import (
     CMD_START_REAL_TIME,
     CMD_STOP_REAL_TIME,
     KEY_BATTERY,
-    KEY_BP_DIASTOLIC,
-    KEY_BP_SYSTOLIC,
     KEY_HEART_RATE,
     KEY_HRV,
     KEY_SPO2,
@@ -122,8 +119,6 @@ class ColmiRingClient:
             KEY_BATTERY: None,
             KEY_HEART_RATE: None,
             KEY_SPO2: None,
-            KEY_BP_SYSTOLIC: None,
-            KEY_BP_DIASTOLIC: None,
             KEY_TEMPERATURE: None,
             KEY_HRV: None,
             KEY_STRESS: None,
@@ -137,7 +132,6 @@ class ColmiRingClient:
             (KEY_HRV, MTYPE_HRV),
             (KEY_TEMPERATURE, MTYPE_TEMP),
             (KEY_BLOOD_SUGAR, MTYPE_BS),
-            (KEY_BP_SYSTOLIC, MTYPE_BP),
         ]
 
         # Single connection for entire cycle — reduces proxy slot exhaustion
@@ -189,11 +183,7 @@ class ColmiRingClient:
                         mtype,
                     )
                     values = await self._run_realtime_measurement(mtype, client)
-                    if mtype == MTYPE_BP:
-                        result[KEY_BP_SYSTOLIC] = values[0] if values else None
-                        result[KEY_BP_DIASTOLIC] = values[1] if values and len(values) > 1 else None
-                    else:
-                        result[key] = values[0] if values else None
+                    result[key] = values[0] if values else None
                 except Exception as err:
                     _LOGGER.warning("Measurement %s failed: %s", key, err)
                     
@@ -399,14 +389,6 @@ class ColmiRingClient:
                 state.value = round(value / 10.0 + 20.0, 1)
                 state.valid_readings += 1
 
-        elif mtype == MTYPE_BP:
-            # data[3] = diastolic, data[4] = systolic (mmHg)
-            diastolic = int(data[3])
-            systolic = int(data[4])
-            if systolic > 0 and diastolic > 0:
-                state.value = systolic
-                state.value2 = diastolic
-                state.valid_readings += 1
 
 
     # ------------------------------------------------------------------

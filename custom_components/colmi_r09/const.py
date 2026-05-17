@@ -23,7 +23,6 @@ CMD_STOP_REAL_TIME = 106    # Stop a real-time manual measurement (0x6A)
 
 # Sub-command / measurement type bytes sent with CMD_START_REAL_TIME
 MTYPE_HR = 0x01             # Heart rate (bpm)
-MTYPE_BP = 0x02             # Blood pressure (systolic/diastolic mmHg)
 MTYPE_SPO2 = 0x03           # Blood oxygen saturation (%)
 MTYPE_STRESS = 0x04         # Stress level / Fatigue (0-100)
 MTYPE_BS = 0x09             # Blood Sugar (mg/dL)
@@ -55,8 +54,6 @@ KEY_STRESS = "stress"
 KEY_HRV = "hrv"
 KEY_TEMPERATURE = "temperature"
 KEY_BLOOD_SUGAR = "blood_sugar"
-KEY_BP_SYSTOLIC = "blood_pressure_systolic"
-KEY_BP_DIASTOLIC = "blood_pressure_diastolic"
 KEY_RSSI = "rssi"
 
 # Configuration keys
