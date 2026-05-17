@@ -37,7 +37,6 @@ from .const import (
     MTYPE_SPO2,
     MTYPE_STRESS,
     MTYPE_TEMP,
-    MTYPE_BS,
     MAX_CONNECTION_ATTEMPTS,
     CMD_BATTERY,
     CMD_START_REAL_TIME,
@@ -48,7 +47,6 @@ from .const import (
     KEY_SPO2,
     KEY_STRESS,
     KEY_TEMPERATURE,
-    KEY_BLOOD_SUGAR,
     PACKET_SIZE,
     REALTIME_CMD_CONTINUE,
     REALTIME_CMD_START,
@@ -122,7 +120,6 @@ class ColmiRingClient:
             KEY_TEMPERATURE: None,
             KEY_HRV: None,
             KEY_STRESS: None,
-            KEY_BLOOD_SUGAR: None,
         }
 
         measurements = [
@@ -131,7 +128,6 @@ class ColmiRingClient:
             (KEY_STRESS, MTYPE_STRESS),
             (KEY_HRV, MTYPE_HRV),
             (KEY_TEMPERATURE, MTYPE_TEMP),
-            (KEY_BLOOD_SUGAR, MTYPE_BS),
         ]
 
         # Single connection for entire cycle — reduces proxy slot exhaustion
@@ -364,14 +360,6 @@ class ColmiRingClient:
             value = int(data[3])
             if value > 0:
                 state.value = value >> 1
-                state.valid_readings += 1
-
-        elif mtype == MTYPE_BS:
-            # data[3] = Blood sugar
-            # Reference: response = (18*response.to_float/10).round
-            value = int(data[3])
-            if value > 0:
-                state.value = round(18 * value / 10.0)
                 state.valid_readings += 1
 
         elif mtype == MTYPE_HRV:
