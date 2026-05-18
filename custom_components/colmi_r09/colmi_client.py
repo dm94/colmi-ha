@@ -32,6 +32,8 @@ from .const import (
     MEASUREMENT_PAUSE,
     MEASUREMENT_STABLE_PERIOD,
     MEASUREMENT_TIMEOUT,
+    MTYPE_BP,
+    MTYPE_BS,
     MTYPE_HR,
     MTYPE_HRV,
     MTYPE_SPO2,
@@ -42,6 +44,9 @@ from .const import (
     CMD_START_REAL_TIME,
     CMD_STOP_REAL_TIME,
     KEY_BATTERY,
+    KEY_BLOOD_SUGAR,
+    KEY_BP_DIASTOLIC,
+    KEY_BP_SYSTOLIC,
     KEY_HEART_RATE,
     KEY_HRV,
     KEY_SPO2,
@@ -120,14 +125,20 @@ class ColmiRingClient:
             KEY_TEMPERATURE: None,
             KEY_HRV: None,
             KEY_STRESS: None,
+            KEY_BP_SYSTOLIC: None,
+            KEY_BP_DIASTOLIC: None,
+            KEY_BLOOD_SUGAR: None,
         }
 
+        # Sequence matches the reference implementation (Toit sequence)
         measurements = [
+            (None, MTYPE_BP),
             (KEY_HEART_RATE, MTYPE_HR),
             (KEY_SPO2, MTYPE_SPO2),
-            (KEY_STRESS, MTYPE_STRESS),
-            (KEY_HRV, MTYPE_HRV),
             (KEY_TEMPERATURE, MTYPE_TEMP),
+            (KEY_BLOOD_SUGAR, MTYPE_BS),
+            (KEY_HRV, MTYPE_HRV),
+            (KEY_STRESS, MTYPE_STRESS),
         ]
 
         # Single connection for entire cycle — reduces proxy slot exhaustion
@@ -179,9 +190,13 @@ class ColmiRingClient:
                         mtype,
                     )
                     values = await self._run_realtime_measurement(mtype, client)
-                    result[key] = values[0] if values else None
+                    if mtype == MTYPE_BP:
+                        result[KEY_BP_SYSTOLIC] = values[0] if len(values) > 0 else None
+                        result[KEY_BP_DIASTOLIC] = values[1] if len(values) > 1 else None
+                    elif key:
+                        result[key] = values[0] if values else None
                 except Exception as err:
-                    _LOGGER.warning("Measurement %s failed: %s", key, err)
+                    _LOGGER.warning("Measurement %s failed: %s", key or mtype, err)
                     
             try:
                 await client.stop_notify(TX_CHAR_UUID)
@@ -274,31 +289,24 @@ class ColmiRingClient:
             self._current_realtime_state = None
             raise
 
-        # Wait until data stream has been stable (received a few valid readings)
+        # The measurement is complete when data stops arriving (silence).
+        # We wait until MEASUREMENT_STABLE_PERIOD seconds have passed without new notifications,
+        # provided we have received at least one observation.
         deadline = time.monotonic() + MEASUREMENT_TIMEOUT
-        timed_out = True
         while time.monotonic() < deadline:
             await asyncio.sleep(1)
-            if state.valid_readings >= 3:
+            silence_duration = time.monotonic() - state.last_update
+            if state.observation_count > 0 and silence_duration >= MEASUREMENT_STABLE_PERIOD:
                 _LOGGER.debug(
-                    "Stable measurement for mtype=0x%02X: %s (after %d observations)",
-                    mtype, state.value, state.observation_count,
+                    "Measurement stable for mtype=0x%02X after %d observations and %.1fs of silence",
+                    mtype, state.observation_count, silence_duration
                 )
-                timed_out = False
                 break
-
-        # Send STOP command
-        try:
-            stop_packet = self._build_realtime_stop_packet(mtype)
-            _LOGGER.debug("[%s] SEND STOP (0x%02X): %s", self._address, mtype, stop_packet.hex())
-            await client.write_gatt_char(RX_CHAR_UUID, stop_packet, response=False)
-        except Exception as e:
-            _LOGGER.debug("[%s] Error sending stop packet (0x%02X): %s", self._address, mtype, e)
 
         self._current_mtype = None
         self._current_realtime_state = None
 
-        if timed_out and state.value is None and state.value2 is None:
+        if state.value is None and state.value2 is None:
             _LOGGER.debug(
                 "[%s] Measurement timeout for mtype=0x%02X after %d observations, no stable value",
                 self._address,
@@ -377,6 +385,24 @@ class ColmiRingClient:
                 state.value = round(value / 10.0 + 20.0, 1)
                 state.valid_readings += 1
 
+        elif mtype == MTYPE_BP:
+            # data[3] = diastolic, data[4] = systolic
+            # Based on Reference: systolic := value[4] & 0xff, response := value[3] & 0xff
+            diastolic = int(data[3])
+            systolic = int(data[4])
+            if systolic > 0 and diastolic > 0:
+                state.value = systolic
+                state.value2 = diastolic
+                state.valid_readings += 1
+
+        elif mtype == MTYPE_BS:
+            # data[3] = blood sugar
+            # Reference: response = (18*response.to_float/10).round
+            value = int(data[3])
+            if value > 0:
+                state.value = round(18 * value / 10.0)
+                state.valid_readings += 1
+
 
 
     # ------------------------------------------------------------------
@@ -403,12 +429,6 @@ class ColmiRingClient:
         # Payload: [mtype, REALTIME_CMD_START, 0x00 ...]
         payload = bytearray([mtype, REALTIME_CMD_START])
         return self._build_packet(CMD_START_REAL_TIME, payload)
-
-    def _build_realtime_stop_packet(self, mtype: int) -> bytearray:
-        """Build a real-time measurement stop packet."""
-        # Payload for stop is usually [mtype, 0, 0]
-        payload = bytearray([mtype, 0, 0])
-        return self._build_packet(CMD_STOP_REAL_TIME, payload)
 
     # ------------------------------------------------------------------
     # Connection management
