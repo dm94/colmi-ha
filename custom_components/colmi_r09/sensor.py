@@ -32,6 +32,9 @@ from .const import (
     CONF_NAME,
     DOMAIN,
     KEY_BATTERY,
+    KEY_BLOOD_SUGAR,
+    KEY_BP_DIASTOLIC,
+    KEY_BP_SYSTOLIC,
     KEY_HEART_RATE,
     KEY_HRV,
     KEY_SPO2,
@@ -44,6 +47,7 @@ from .coordinator import ColmiDataUpdateCoordinator
 # Custom unit strings not available as HA constants
 UNIT_BPM = "bpm"
 UNIT_MS = "ms"
+UNIT_MG_DL = "mg/dL"
 
 
 @dataclass(frozen=True)
@@ -99,6 +103,30 @@ SENSOR_DESCRIPTIONS: tuple[ColmiSensorEntityDescription, ...] = (
         name="Stress Level",
         icon="mdi:brain",
         state_class=SensorStateClass.MEASUREMENT,
+    ),
+    ColmiSensorEntityDescription(
+        key="blood_pressure_systolic",
+        data_key=KEY_BP_SYSTOLIC,
+        name="Blood Pressure Systolic",
+        icon="mdi:heart-pulse",
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfPressure.MMHG,
+    ),
+    ColmiSensorEntityDescription(
+        key="blood_pressure_diastolic",
+        data_key=KEY_BP_DIASTOLIC,
+        name="Blood Pressure Diastolic",
+        icon="mdi:heart-pulse",
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfPressure.MMHG,
+    ),
+    ColmiSensorEntityDescription(
+        key="blood_sugar",
+        data_key=KEY_BLOOD_SUGAR,
+        name="Blood Sugar",
+        icon="mdi:glucose",
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UNIT_MG_DL,
     ),
     ColmiSensorEntityDescription(
         key="rssi",
