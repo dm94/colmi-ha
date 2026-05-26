@@ -43,6 +43,7 @@ from .const import (
     CMD_BATTERY,
     CMD_START_REAL_TIME,
     CMD_STOP_REAL_TIME,
+    REALTIME_CMD_STOP,
     KEY_BATTERY,
     KEY_BLOOD_SUGAR,
     KEY_BP_DIASTOLIC,
@@ -70,6 +71,7 @@ class MeasurementState:
     last_update: float = field(default_factory=time.monotonic)
     observation_count: int = 0
     valid_readings: int = 0
+    error_code: int = 0
 
 
 class ColmiRingClient:
@@ -99,7 +101,11 @@ class ColmiRingClient:
                 self._battery_value = int(data[1])
                 self._battery_event.set()
         elif len(data) >= PACKET_SIZE and data[0] == CMD_START_REAL_TIME:
-            if self._current_mtype is not None and self._current_realtime_state is not None:
+            if (
+                self._current_mtype is not None
+                and self._current_realtime_state is not None
+                and data[1] == self._current_mtype
+            ):
                 _LOGGER.debug("[%s] RECV (0x%02X): %s", self._address, self._current_mtype, data.hex())
                 self._handle_realtime_response(data, self._current_mtype, self._current_realtime_state)
                 self._current_realtime_state.last_update = time.monotonic()
@@ -132,13 +138,13 @@ class ColmiRingClient:
 
         # Sequence matches the reference implementation (Toit sequence)
         measurements = [
-            (None, MTYPE_BP),
             (KEY_HEART_RATE, MTYPE_HR),
             (KEY_SPO2, MTYPE_SPO2),
             (KEY_TEMPERATURE, MTYPE_TEMP),
             (KEY_BLOOD_SUGAR, MTYPE_BS),
             (KEY_HRV, MTYPE_HRV),
             (KEY_STRESS, MTYPE_STRESS),
+            (None, MTYPE_BP),
         ]
 
         # Single connection for entire cycle — reduces proxy slot exhaustion
@@ -266,49 +272,65 @@ class ColmiRingClient:
         self._current_mtype = mtype
         self._current_realtime_state = state
 
-        # Send START command
-        start_packet = self._build_realtime_start_packet(mtype)
-        _LOGGER.debug(
-            "[%s] SEND START (0x%02X) to RX_CHAR_UUID=%s: %s",
-            self._address,
-            mtype,
-            RX_CHAR_UUID,
-            start_packet.hex(),
-        )
         try:
-            await client.write_gatt_char(RX_CHAR_UUID, start_packet, response=False)
-        except Exception as err:
-            _LOGGER.warning(
-                "[%s] write_gatt_char failed for realtime mtype=0x%02X on RX_CHAR_UUID=%s: %s",
+            # Send START command
+            start_packet = self._build_realtime_start_packet(mtype)
+            _LOGGER.debug(
+                "[%s] SEND START (0x%02X) to RX_CHAR_UUID=%s: %s",
                 self._address,
                 mtype,
                 RX_CHAR_UUID,
+                start_packet.hex(),
+            )
+            await client.write_gatt_char(RX_CHAR_UUID, start_packet, response=False)
+
+            # The measurement is complete when data stops arriving (silence) or error received.
+            deadline = time.monotonic() + MEASUREMENT_TIMEOUT
+            last_continue = 0.0
+            while time.monotonic() < deadline:
+                # Periodic CONTINUE packet (every 2 seconds)
+                now = time.monotonic()
+                if now - last_continue >= 2.0:
+                    continue_packet = self._build_realtime_continue_packet(mtype)
+                    _LOGGER.debug("[%s] SEND CONTINUE (0x%02X)", self._address, mtype)
+                    await client.write_gatt_char(RX_CHAR_UUID, continue_packet, response=False)
+                    last_continue = now
+
+                await asyncio.sleep(1)
+
+                if state.error_code != 0:
+                    _LOGGER.warning("[%s] Measurement 0x%02X aborted with error code: %d", self._address, mtype, state.error_code)
+                    break
+
+                silence_duration = time.monotonic() - state.last_update
+                if state.observation_count > 0 and silence_duration >= MEASUREMENT_STABLE_PERIOD:
+                    _LOGGER.debug(
+                        "Measurement stable for mtype=0x%02X after %d observations and %.1fs of silence",
+                        mtype, state.observation_count, silence_duration
+                    )
+                    break
+        except Exception as err:
+            _LOGGER.warning(
+                "[%s] Error during realtime measurement mtype=0x%02X: %s",
+                self._address,
+                mtype,
                 err,
             )
+        finally:
+            # Send STOP command
+            try:
+                stop_packet = self._build_realtime_stop_packet(mtype)
+                _LOGGER.debug("[%s] SEND STOP (0x%02X)", self._address, mtype)
+                await client.write_gatt_char(RX_CHAR_UUID, stop_packet, response=False)
+            except Exception as stop_err:
+                _LOGGER.debug("[%s] Failed to send STOP for 0x%02X: %s", self._address, mtype, stop_err)
+
             self._current_mtype = None
             self._current_realtime_state = None
-            raise
-
-        # The measurement is complete when data stops arriving (silence).
-        # We wait until MEASUREMENT_STABLE_PERIOD seconds have passed without new notifications,
-        # provided we have received at least one observation.
-        deadline = time.monotonic() + MEASUREMENT_TIMEOUT
-        while time.monotonic() < deadline:
-            await asyncio.sleep(1)
-            silence_duration = time.monotonic() - state.last_update
-            if state.observation_count > 0 and silence_duration >= MEASUREMENT_STABLE_PERIOD:
-                _LOGGER.debug(
-                    "Measurement stable for mtype=0x%02X after %d observations and %.1fs of silence",
-                    mtype, state.observation_count, silence_duration
-                )
-                break
-
-        self._current_mtype = None
-        self._current_realtime_state = None
 
         if state.value is None and state.value2 is None:
             _LOGGER.debug(
-                "[%s] Measurement timeout for mtype=0x%02X after %d observations, no stable value",
+                "[%s] Measurement finished for mtype=0x%02X after %d observations, no stable value",
                 self._address,
                 mtype,
                 state.observation_count,
@@ -344,6 +366,7 @@ class ColmiRingClient:
 
         error_code = data[2]
         if error_code != 0:
+            state.error_code = error_code
             return
 
         # The payload layout varies per measurement type
@@ -428,6 +451,16 @@ class ColmiRingClient:
         """Build a real-time measurement start packet."""
         # Payload: [mtype, REALTIME_CMD_START, 0x00 ...]
         payload = bytearray([mtype, REALTIME_CMD_START])
+        return self._build_packet(CMD_START_REAL_TIME, payload)
+
+    def _build_realtime_continue_packet(self, mtype: int) -> bytearray:
+        """Build a real-time measurement continue packet."""
+        payload = bytearray([mtype, REALTIME_CMD_CONTINUE])
+        return self._build_packet(CMD_START_REAL_TIME, payload)
+
+    def _build_realtime_stop_packet(self, mtype: int) -> bytearray:
+        """Build a real-time measurement stop packet."""
+        payload = bytearray([mtype, REALTIME_CMD_STOP])
         return self._build_packet(CMD_START_REAL_TIME, payload)
 
     # ------------------------------------------------------------------
