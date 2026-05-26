@@ -19,7 +19,6 @@ PACKET_SIZE = 16
 # --------------------------------------------------------------------------
 CMD_BATTERY = 0x03          # Request battery level
 CMD_START_REAL_TIME = 105   # Start a real-time manual measurement (0x69)
-CMD_STOP_REAL_TIME = 106    # Stop a real-time manual measurement (0x6A)
 
 # Sub-command / measurement type bytes sent with CMD_START_REAL_TIME
 MTYPE_HR = 0x01             # Heart rate (bpm)
@@ -33,6 +32,7 @@ MTYPE_TEMP = 0x0B           # Temperature (°C)
 # Control bytes within the realtime command
 REALTIME_CMD_START = 0x01   # Continue/Start real-time measurement
 REALTIME_CMD_CONTINUE = 0x03
+REALTIME_CMD_STOP = 0x04
 
 # Max time to wait for a stable measurement (seconds)
 MEASUREMENT_TIMEOUT = 60
