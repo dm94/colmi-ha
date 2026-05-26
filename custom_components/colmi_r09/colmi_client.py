@@ -42,7 +42,6 @@ from .const import (
     MAX_CONNECTION_ATTEMPTS,
     CMD_BATTERY,
     CMD_START_REAL_TIME,
-    CMD_STOP_REAL_TIME,
     REALTIME_CMD_STOP,
     KEY_BATTERY,
     KEY_BLOOD_SUGAR,
@@ -316,6 +315,7 @@ class ColmiRingClient:
                 mtype,
                 err,
             )
+            raise
         finally:
             # Send STOP command
             try:
