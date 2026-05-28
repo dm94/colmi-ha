@@ -25,7 +25,6 @@ MTYPE_HR = 0x01             # Heart rate (bpm)
 MTYPE_BP = 0x02             # Blood pressure
 MTYPE_SPO2 = 0x03           # Blood oxygen saturation (%)
 MTYPE_STRESS = 0x04         # Stress level / Fatigue (0-100)
-MTYPE_BS = 0x09             # Blood sugar
 MTYPE_HRV = 0x0A            # Heart rate variability (ms)
 MTYPE_TEMP = 0x0B           # Temperature (°C)
 
@@ -56,7 +55,6 @@ KEY_HRV = "hrv"
 KEY_TEMPERATURE = "temperature"
 KEY_BP_SYSTOLIC = "blood_pressure_systolic"
 KEY_BP_DIASTOLIC = "blood_pressure_diastolic"
-KEY_BLOOD_SUGAR = "blood_sugar"
 KEY_RSSI = "rssi"
 
 # Configuration keys

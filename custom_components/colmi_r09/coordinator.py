@@ -24,7 +24,6 @@ from .const import (
     KEY_TEMPERATURE,
     KEY_BP_SYSTOLIC,
     KEY_BP_DIASTOLIC,
-    KEY_BLOOD_SUGAR,
     KEY_RSSI,
 )
 
@@ -40,7 +39,6 @@ EMPTY_DATA: dict[str, Any] = {
     KEY_STRESS: None,
     KEY_BP_SYSTOLIC: None,
     KEY_BP_DIASTOLIC: None,
-    KEY_BLOOD_SUGAR: None,
     KEY_RSSI: None,
 }
 
