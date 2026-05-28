@@ -3,7 +3,7 @@
 Handles all low-level Bluetooth communication: connecting to the ring,
 building command packets, parsing response packets, and extracting
 sensor values (heart rate, SpO2, blood pressure, temperature, HRV,
-stress, blood sugar, and battery level).
+stress, and battery level).
 
 Protocol summary (Nordic UART-like BLE):
 - Service UUID  : 6E40FFF0-B5A3-F393-E0A9-E50E24DCCA9E
@@ -33,7 +33,6 @@ from .const import (
     MEASUREMENT_STABLE_PERIOD,
     MEASUREMENT_TIMEOUT,
     MTYPE_BP,
-    MTYPE_BS,
     MTYPE_HR,
     MTYPE_HRV,
     MTYPE_SPO2,
@@ -44,7 +43,6 @@ from .const import (
     CMD_START_REAL_TIME,
     REALTIME_CMD_STOP,
     KEY_BATTERY,
-    KEY_BLOOD_SUGAR,
     KEY_BP_DIASTOLIC,
     KEY_BP_SYSTOLIC,
     KEY_HEART_RATE,
@@ -132,7 +130,6 @@ class ColmiRingClient:
             KEY_STRESS: None,
             KEY_BP_SYSTOLIC: None,
             KEY_BP_DIASTOLIC: None,
-            KEY_BLOOD_SUGAR: None,
         }
 
         # Sequence matches the reference implementation (Toit sequence)
@@ -140,7 +137,6 @@ class ColmiRingClient:
             (KEY_HEART_RATE, MTYPE_HR),
             (KEY_SPO2, MTYPE_SPO2),
             (KEY_TEMPERATURE, MTYPE_TEMP),
-            (KEY_BLOOD_SUGAR, MTYPE_BS),
             (KEY_HRV, MTYPE_HRV),
             (KEY_STRESS, MTYPE_STRESS),
             (None, MTYPE_BP),
@@ -416,14 +412,6 @@ class ColmiRingClient:
             if systolic > 0 and diastolic > 0:
                 state.value = systolic
                 state.value2 = diastolic
-                state.valid_readings += 1
-
-        elif mtype == MTYPE_BS:
-            # data[3] = blood sugar
-            # Reference: response = (18*response.to_float/10).round
-            value = int(data[3])
-            if value > 0:
-                state.value = round(18 * value / 10.0)
                 state.valid_readings += 1
 
 
